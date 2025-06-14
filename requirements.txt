@@ -1,0 +1,11 @@
+streamlit
+supabase
+pandas
+numpy
+matplotlib
+plotly
+fastdtw
+dtaidistance
+scipy
+streamlit_plotly_events
+python-dotenv
