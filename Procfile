@@ -1,1 +1,1 @@
-web: streamlit run FatigueAnalysis_Web_test.py --server.port $PORT --server.address 0.0.0.0
+web: sh -c 'streamlit run FatigueAnalysis_Web_test.py --server.port=$PORT --server.address=0.0.0.0'
