@@ -9,3 +9,4 @@ dtaidistance
 scipy
 streamlit_plotly_events
 python-dotenv
+IPython
