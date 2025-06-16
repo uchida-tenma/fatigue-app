@@ -61,6 +61,8 @@ folders.append("新規フォルダを作成")
 selected_subfolder = st.selectbox(f"'{selected_dataset}': 保存/削除対象フォルダを選択", folders)
 
 if selected_subfolder == "新規フォルダを作成":
+    st.warning("先に新しいフォルダを作成してください。")
+    st.stop()
     new_folder_name = st.text_input(f"'{selected_dataset}': 新しいフォルダ名を入力")
     if new_folder_name:
         selected_subfolder = new_folder_name
@@ -113,6 +115,8 @@ speed_folders.append("新規フォルダを作成")
 selected_speed_subfolder = st.selectbox(f"'{selected_dataset}_SpeedRoll': 保存/削除対象フォルダを選択", speed_folders)
 
 if selected_speed_subfolder == "新規フォルダを作成":
+    st.warning("先に新しいフォルダを作成してください。")
+    st.stop()
     new_folder_name = st.text_input(f"'{selected_dataset}_SpeedRoll': 新しいフォルダ名を入力", key="speed_new_folder")
     if new_folder_name:
         selected_speed_subfolder = new_folder_name
@@ -287,10 +291,15 @@ else:
 sorted_folders = sorted(folders, key=extract_number)
 
 for folder in sorted_folders:
-    csv_files = os.listdir(os.path.join(path, folder))
+    folder_path = f"{path}/{folder}"
+    files = supabase.storage.from_(BUCKET_NAME).list(folder_path)
+    csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
+
     for csv_file in csv_files:
         print(csv_file)
-        df = pd.read_csv(os.path.join(path, folder, csv_file), encoding='utf-8')
+        res = supabase.storage.from_(BUCKET_NAME).download(f"{folder_path}/{csv_file}")
+        df = pd.read_csv(io.BytesIO(res), encoding='utf-8')
+
         list_num = -1
         one_person_data_acc = []
         one_person_data_gyro = []
@@ -306,27 +315,18 @@ for folder in sorted_folders:
                 if row_num < 200:
                     count = 1
                     row_num += 1
-                    acc_data = float(row.iloc[26]) * float(row.iloc[26]) + float(row.iloc[27]) * float(row.iloc[27]) + float(row.iloc[28]) * float(row.iloc[28])
-                    gyro_data = float(row.iloc[29]) * float(row.iloc[29]) + float(row.iloc[30]) * float(row.iloc[30]) + float(row.iloc[31]) * float(row.iloc[31])
+                    acc_data = float(row.iloc[26])**2 + float(row.iloc[27])**2 + float(row.iloc[28])**2
+                    gyro_data = float(row.iloc[29])**2 + float(row.iloc[30])**2 + float(row.iloc[31])**2
                     one_person_data_acc[list_num].append(acc_data)
                     one_person_data_gyro[list_num].append(gyro_data)
             elif row.iloc[4] == 0:
                 count = 0
                 row_num = 0
-        # ファイル内の全てのデータセグメントに対して処理を実行
-
-        #target_length = int(np.mean([len(series) for series in one_person_data_acc]))  # 平均長さを計算
-        #print("平均長さ:", target_length)
-
-        #for i in range(len(one_person_data_acc)):
-            #one_person_data_acc[i] = pad_or_interpolate_smooth(one_person_data_acc[i], target_length=target_length)  # データを補完
-            #split_list = pad_or_interpolate(split_list_acc, target_length=target_length)  # データを補完
 
         print(len(one_person_data_acc))
         make_split_list_acc(one_person_data_acc)
         make_split_list_gyro(one_person_data_gyro)
         print(len(split_list_acc))
-
 
 # DTW距離を計算する関数
 def dtw_distance(series1, series2):
@@ -584,18 +584,21 @@ horizontal_movement_array = []
 
 
 if not speed_folders:
-        st.warning("指定フォルダが見つかりません。")
+    st.warning("指定フォルダが見つかりません。")
 else:
-    sorted_folders = sorted(speed_folders, key=extract_number)
-    for folder in sorted_folders:
-        csv_files = os.listdir(os.path.join(speed_path, folder))
+    sorted_speed_folders = sorted(speed_folders, key=extract_number)
+    for folder in sorted_speed_folders:
+        folder_path = f"{speed_path}/{folder}"
+        files = supabase.storage.from_(BUCKET_NAME).list(folder_path)
+        csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
+
         if not csv_files:
             st.warning("指定フォルダにCSVファイルが見つかりません。")
         else:
             for csv_file in csv_files:
-                df_new = pd.read_csv(os.path.join(speed_path, folder, csv_file), usecols=[12, 13, 16, 17], encoding='shift_jis')
-                #speed_array, spin_array, vertical_movement_array, horizontal_movement_array += load_pitch_data(df)
-                
+                res = supabase.storage.from_(BUCKET_NAME).download(f"{folder_path}/{csv_file}")
+                df_new = pd.read_csv(io.BytesIO(res), usecols=[12, 13, 16, 17], encoding='shift_jis')
+
                 s_new, sp_new, vm_new, hm_new = load_pitch_data(df_new)
                 df_speed = pd.concat([df_speed, df_new], ignore_index=True)
                 speed_array += list(s_new)
