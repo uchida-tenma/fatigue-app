@@ -6,19 +6,16 @@ import re
 import plotly.graph_objects as go
 import streamlit as st
 from fastdtw import fastdtw
-import plotly.offline as pyo
 from dtaidistance import dtw
-from IPython.display import display
 from streamlit_plotly_events import plotly_events
-from scipy.interpolate import interp1d,  UnivariateSpline
+from scipy.interpolate import interp1d, UnivariateSpline
 from scipy.signal import find_peaks
 from supabase import create_client
 import io
-import shutil
 
 # Supabase設定
 SUPABASE_URL = "https://sqyludydesosumixzuzf.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxeWx1ZHlkZXNvc3VtaXh6dXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MTEzODQsImV4cCI6MjA2NTQ4NzM4NH0.fkQTHATCLR0RQdEDL-LCsg6Vlgal4WkogfQPVi9o1_c"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 BUCKET_NAME = "fatigue-data"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -31,7 +28,7 @@ all_files = supabase.storage.from_(BUCKET_NAME).list("", {"recursive": True})
 existing_datasets = sorted(list({
     f["name"].split("/")[0]
     for f in all_files
-    if not f["name"].startswith("_") and "/" in f["name"] and not f["name"].endswith(".csv") and not f["name"].split("/")[0].endswith("_SpeedRoll")
+    if "/" in f["name"] and not f["name"].endswith(".csv") and not f["name"].split("/")[0].endswith("_SpeedRoll")
 }))
 
 options = existing_datasets + ["新規作成"]
@@ -43,6 +40,11 @@ if selected_option == "新規作成":
         selected_dataset = new_dataset
         path = f"{selected_dataset}"
         speed_path = f"{selected_dataset}_SpeedRoll"
+
+        # ダミーファイルをアップロードして"フォルダ"を作る
+        dummy = b"init"
+        supabase.storage.from_(BUCKET_NAME).upload(f"{path}/__init__.txt", dummy, {"content-type": "text/plain"})
+        supabase.storage.from_(BUCKET_NAME).upload(f"{speed_path}/__init__.txt", dummy, {"content-type": "text/plain"})
     else:
         st.warning("データセット名を入力してください。")
         st.stop()
@@ -51,113 +53,82 @@ else:
     path = f"{selected_dataset}"
     speed_path = f"{selected_dataset}_SpeedRoll"
 
-# --- pathのサブフォルダ一覧取得 ---
-folders = sorted(list({
-    f["name"].split("/")[1]
-    for f in supabase.storage.from_(BUCKET_NAME).list(f"{path}/", {"recursive": True})
-    if f["name"].count("/") >= 2
-}))
+# --- サブフォルダ取得関数 ---
+def get_subfolders(base_path):
+    files = supabase.storage.from_(BUCKET_NAME).list(base_path + "/", {"recursive": True})
+    return sorted(list({f["name"].split("/")[1] for f in files if f["name"].count("/") >= 2}))
+
+folders = get_subfolders(path)
 folders.append("新規フォルダを作成")
-selected_subfolder = st.selectbox(f"'{selected_dataset}': 保存/削除対象フォルダを選択", folders)
+selected_subfolder = st.selectbox(f"'{selected_dataset}': サブフォルダ選択", folders)
 
 if selected_subfolder == "新規フォルダを作成":
-    st.warning("先に新しいフォルダを作成してください。")
-    st.stop()
     new_folder_name = st.text_input(f"'{selected_dataset}': 新しいフォルダ名を入力")
     if new_folder_name:
         selected_subfolder = new_folder_name
+        dummy = b"init"
+        supabase.storage.from_(BUCKET_NAME).upload(f"{path}/{selected_subfolder}/__init__.txt", dummy, {"content-type": "text/plain"})
     else:
         st.stop()
 
-if selected_subfolder:
-    st.markdown(f"#### '{selected_dataset}': CSVアップロード (Supabase)")
-    uploaded_files = st.file_uploader(f"'{selected_dataset}': CSVファイルを選択", type="csv", accept_multiple_files=True)
-    if uploaded_files:
-        for file in uploaded_files:
-            supa_path = f"{path}/{selected_subfolder}/{file.name}"
-            try:
-                supabase.storage.from_(BUCKET_NAME).remove(supa_path)
-            except:
-                pass
-            supabase.storage.from_(BUCKET_NAME).upload(
-                supa_path,
-                file,
-                file_options={"content-type": "text/csv"}
-            )
-        st.success(f"{len(uploaded_files)} ファイルを Supabase にアップロードしました。")
+# --- アップロード処理 ---
+st.markdown(f"#### '{selected_dataset}/{selected_subfolder}': CSVアップロード")
+uploaded_files = st.file_uploader("CSVファイルを選択", type="csv", accept_multiple_files=True)
+if uploaded_files:
+    for file in uploaded_files:
+        supa_path = f"{path}/{selected_subfolder}/{file.name}"
+        try:
+            supabase.storage.from_(BUCKET_NAME).remove(supa_path)
+        except:
+            pass
+        supabase.storage.from_(BUCKET_NAME).upload(supa_path, file, {"content-type": "text/csv"})
+    st.success(f"{len(uploaded_files)} ファイルをアップロードしました。")
 
-    st.markdown(f"#### '{selected_dataset}': CSVファイルの削除 (Supabase)")
-    files = supabase.storage.from_(BUCKET_NAME).list(f"{path}/{selected_subfolder}")
-    if files:
-        csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
-        if csv_files:
-            selected_file = st.selectbox(f"'{selected_dataset}': 削除したいCSVファイルを選択", csv_files)
-            if st.button(f"'{selected_dataset}': このCSVファイルを削除"):
-                supabase.storage.from_(BUCKET_NAME).remove(f"{path}/{selected_subfolder}/{selected_file}")
-                st.success(f"{selected_file} を削除しました。")
-                st.experimental_rerun()
-
-    st.markdown(f"#### '{selected_dataset}': フォルダの削除")
-    confirm = st.checkbox(f"'{selected_dataset}': 「{selected_subfolder}」フォルダを完全に削除する")
-    if confirm and st.button(f"'{selected_dataset}': フォルダを削除"):
-        for f in files:
-            supabase.storage.from_(BUCKET_NAME).remove(f"{path}/{selected_subfolder}/{f['name']}")
-        st.success(f"フォルダ「{selected_subfolder}」を削除しました。")
+# --- 削除処理 ---
+files = supabase.storage.from_(BUCKET_NAME).list(f"{path}/{selected_subfolder}")
+csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
+if csv_files:
+    selected_file = st.selectbox("削除したいCSVファイルを選択", csv_files)
+    if st.button("このCSVファイルを削除"):
+        supabase.storage.from_(BUCKET_NAME).remove(f"{selected_file}")
+        st.success(f"{selected_file} を削除しました。")
         st.experimental_rerun()
 
-# --- speed_pathのサブフォルダ一覧取得 ---
-speed_folders = sorted(list({
-    f["name"].split("/")[1]
-    for f in supabase.storage.from_(BUCKET_NAME).list(f"{speed_path}/", {"recursive": True})
-    if f["name"].count("/") >= 2
-}))
+# --- SpeedRoll 側 ---
+speed_folders = get_subfolders(speed_path)
 speed_folders.append("新規フォルダを作成")
-selected_speed_subfolder = st.selectbox(f"'{selected_dataset}_SpeedRoll': 保存/削除対象フォルダを選択", speed_folders)
+selected_speed_subfolder = st.selectbox(f"'{selected_dataset}_SpeedRoll': サブフォルダ選択", speed_folders)
 
 if selected_speed_subfolder == "新規フォルダを作成":
-    st.warning("先に新しいフォルダを作成してください。")
-    st.stop()
     new_folder_name = st.text_input(f"'{selected_dataset}_SpeedRoll': 新しいフォルダ名を入力", key="speed_new_folder")
     if new_folder_name:
         selected_speed_subfolder = new_folder_name
+        dummy = b"init"
+        supabase.storage.from_(BUCKET_NAME).upload(f"{speed_path}/{selected_speed_subfolder}/__init__.txt", dummy, {"content-type": "text/plain"})
     else:
         st.stop()
 
-if selected_speed_subfolder:
-    st.markdown(f"#### '{selected_dataset}_SpeedRoll': CSVアップロード (Supabase)")
-    uploaded_speed_files = st.file_uploader(f"'{selected_dataset}_SpeedRoll': CSVファイルを選択", type="csv", accept_multiple_files=True, key="speed_upload")
-    if uploaded_speed_files:
-        for file in uploaded_speed_files:
-            supa_path = f"{speed_path}/{selected_speed_subfolder}/{file.name}"
-            try:
-                supabase.storage.from_(BUCKET_NAME).remove(supa_path)
-            except:
-                pass
-            supabase.storage.from_(BUCKET_NAME).upload(
-                supa_path,
-                file,
-                file_options={"content-type": "text/csv"}
-            )
-        st.success(f"{len(uploaded_speed_files)} ファイルを Supabase にアップロードしました。")
+st.markdown(f"#### '{selected_dataset}_SpeedRoll/{selected_speed_subfolder}': CSVアップロード")
+uploaded_speed_files = st.file_uploader("CSVファイルを選択", type="csv", accept_multiple_files=True, key="speed_upload")
+if uploaded_speed_files:
+    for file in uploaded_speed_files:
+        supa_path = f"{speed_path}/{selected_speed_subfolder}/{file.name}"
+        try:
+            supabase.storage.from_(BUCKET_NAME).remove(supa_path)
+        except:
+            pass
+        supabase.storage.from_(BUCKET_NAME).upload(supa_path, file, {"content-type": "text/csv"})
+    st.success(f"{len(uploaded_speed_files)} ファイルをアップロードしました。")
 
-    st.markdown(f"#### '{selected_dataset}_SpeedRoll': CSVファイルの削除 (Supabase)")
-    files = supabase.storage.from_(BUCKET_NAME).list(f"{speed_path}/{selected_speed_subfolder}")
-    if files:
-        csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
-        if csv_files:
-            selected_file = st.selectbox(f"'{selected_dataset}_SpeedRoll': 削除したいCSVファイルを選択", csv_files)
-            if st.button(f"'{selected_dataset}_SpeedRoll': このCSVファイルを削除"):
-                supabase.storage.from_(BUCKET_NAME).remove(f"{speed_path}/{selected_speed_subfolder}/{selected_file}")
-                st.success(f"{selected_file} を削除しました。")
-                st.experimental_rerun()
-
-    st.markdown(f"#### '{selected_dataset}_SpeedRoll': フォルダの削除")
-    confirm_speed = st.checkbox(f"'{selected_dataset}_SpeedRoll': 「{selected_speed_subfolder}」フォルダを完全に削除する")
-    if confirm_speed and st.button(f"'{selected_dataset}_SpeedRoll': フォルダを削除"):
-        for f in files:
-            supabase.storage.from_(BUCKET_NAME).remove(f"{speed_path}/{selected_speed_subfolder}/{f['name']}")
-        st.success(f"フォルダ「{selected_speed_subfolder}」を削除しました。")
+files = supabase.storage.from_(BUCKET_NAME).list(f"{speed_path}/{selected_speed_subfolder}")
+csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
+if csv_files:
+    selected_file = st.selectbox("削除したいCSVファイルを選択", csv_files, key="delete_speed")
+    if st.button("このCSVファイルを削除", key="btn_delete_speed"):
+        supabase.storage.from_(BUCKET_NAME).remove(f"{selected_file}")
+        st.success(f"{selected_file} を削除しました。")
         st.experimental_rerun()
+
 
 
 # ピーク検出とデータ整形のためのパラメータ
@@ -292,12 +263,12 @@ sorted_folders = sorted(folders, key=extract_number)
 
 for folder in sorted_folders:
     folder_path = f"{path}/{folder}"
-    files = supabase.storage.from_(BUCKET_NAME).list(folder_path)
+    files = supabase.storage.from_(BUCKET_NAME).list(folder_path, {"recursive": True})
     csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
 
     for csv_file in csv_files:
         print(csv_file)
-        res = supabase.storage.from_(BUCKET_NAME).download(f"{folder_path}/{csv_file}")
+        res = supabase.storage.from_(BUCKET_NAME).download(csv_file)
         df = pd.read_csv(io.BytesIO(res), encoding='utf-8')
 
         list_num = -1
@@ -327,6 +298,7 @@ for folder in sorted_folders:
         make_split_list_acc(one_person_data_acc)
         make_split_list_gyro(one_person_data_gyro)
         print(len(split_list_acc))
+
 
 # DTW距離を計算する関数
 def dtw_distance(series1, series2):
