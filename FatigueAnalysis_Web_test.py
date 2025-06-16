@@ -15,7 +15,7 @@ import io
 
 # Supabase設定
 SUPABASE_URL = "https://sqyludydesosumixzuzf.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxeWx1ZHlkZXNvc3VtaXh6dXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MTEzODQsImV4cCI6MjA2NTQ4NzM4NH0.fkQTHATCLR0RQdEDL-LCsg6Vlgal4WkogfQPVi9o1_c"
 BUCKET_NAME = "fatigue-data"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
