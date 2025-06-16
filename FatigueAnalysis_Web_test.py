@@ -17,21 +17,23 @@ import io
 import shutil
 
 # Supabase設定
-SUPABASE_URL = "https://sqyludydesosumixzuzf.supabase.co"  # あなたのSupabase URLに変更
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxeWx1ZHlkZXNvc3VtaXh6dXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MTEzODQsImV4cCI6MjA2NTQ4NzM4NH0.fkQTHATCLR0RQdEDL-LCsg6Vlgal4WkogfQPVi9o1_c"      # あなたのService Role Keyに変更
+SUPABASE_URL = "https://sqyludydesosumixzuzf.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNxeWx1ZHlkZXNvc3VtaXh6dXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MTEzODQsImV4cCI6MjA2NTQ4NzM4NH0.fkQTHATCLR0RQdEDL-LCsg6Vlgal4WkogfQPVi9o1_c"
 BUCKET_NAME = "fatigue-data"
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-base_path = os.path.dirname(__file__)
 
 # --- 設定 ---
 distance_type = 'DTW'
 plot_type = "before_peak"
 
-existing_datasets = [
-    name for name in os.listdir(base_path)
-    if os.path.isdir(os.path.join(base_path, name)) and not name.endswith("_SpeedRoll")
-]
+# --- データセット一覧取得 ---
+all_files = supabase.storage.from_(BUCKET_NAME).list("", {"recursive": True})
+existing_datasets = sorted(list({
+    f["name"].split("/")[0]
+    for f in all_files
+    if not f["name"].startswith("_") and "/" in f["name"] and not f["name"].endswith(".csv") and not f["name"].split("/")[0].endswith("_SpeedRoll")
+}))
+
 options = existing_datasets + ["新規作成"]
 selected_option = st.selectbox("使用するデータセットを選択", options)
 
@@ -39,62 +41,39 @@ if selected_option == "新規作成":
     new_dataset = st.text_input("新しいデータセット名を入力", "")
     if new_dataset:
         selected_dataset = new_dataset
-        path = os.path.join(base_path, selected_dataset)
-        speed_path = os.path.join(base_path, f"{selected_dataset}_SpeedRoll")
-        if not os.path.exists(path):
-            os.makedirs(path)
-            st.success(f"データセット '{selected_dataset}' を作成しました。")
-        if not os.path.exists(speed_path):
-            os.makedirs(speed_path)
-            st.success(f"補助フォルダ '{selected_dataset}_SpeedRoll' も作成しました。")
+        path = f"{selected_dataset}"
+        speed_path = f"{selected_dataset}_SpeedRoll"
     else:
-        path = None
-        speed_path = None
         st.warning("データセット名を入力してください。")
+        st.stop()
 else:
     selected_dataset = selected_option
-    path = os.path.join(base_path, selected_dataset)
-    speed_path = os.path.join(base_path, f"{selected_dataset}_SpeedRoll")
+    path = f"{selected_dataset}"
+    speed_path = f"{selected_dataset}_SpeedRoll"
 
-if path and os.path.exists(path):
-    folders = os.listdir(path)
-    st.write(f"データセット '{selected_dataset}' のフォルダ一覧:", folders)
-
-if speed_path and os.path.exists(speed_path):
-    speed_folders = os.listdir(speed_path)
-    st.write(f"データセット'{selected_dataset}_SpeedRoll' のフォルダ一覧:", speed_folders)
-
-st.divider()
-st.subheader(f"'{selected_dataset}'データのサブフォルダ管理")
-
-def extract_number(name):
-    match = re.search(r'\d+', name)
-    return int(match.group()) if match else float('inf')
-
-subfolders = sorted([f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))], key=extract_number)
-subfolders.append("新規フォルダを作成")
-selected_subfolder = st.selectbox(f"'{selected_dataset}': 保存/削除対象フォルダを選択", subfolders)
+# --- pathのサブフォルダ一覧取得 ---
+folders = sorted(list({
+    f["name"].split("/")[1]
+    for f in supabase.storage.from_(BUCKET_NAME).list(f"{path}/", {"recursive": True})
+    if f["name"].count("/") >= 2
+}))
+folders.append("新規フォルダを作成")
+selected_subfolder = st.selectbox(f"'{selected_dataset}': 保存/削除対象フォルダを選択", folders)
 
 if selected_subfolder == "新規フォルダを作成":
-    new_folder_name = st.text_input(f"'{selected_dataset}': 新しいフォルダ名（例: 1-10球目）を入力")
-    if new_folder_name and st.button(f"'{selected_dataset}': フォルダを作成"):
-        new_folder_path = os.path.join(path, new_folder_name)
-        new_speed_folder_path = os.path.join(speed_path, new_folder_name)
-        if not os.path.exists(new_folder_path):
-            os.makedirs(new_folder_path)
-            st.success(f"'{selected_dataset}':「{new_folder_name}」を作成しました。")
-        if not os.path.exists(new_speed_folder_path):
-            os.makedirs(new_speed_folder_path)
-            st.success(f"'{selected_dataset}_SpeedRoll':「{new_folder_name}」も作成しました。")
+    new_folder_name = st.text_input(f"'{selected_dataset}': 新しいフォルダ名を入力")
+    if new_folder_name:
         selected_subfolder = new_folder_name
+    else:
+        st.stop()
 
-if selected_subfolder != "新規フォルダを作成":
+if selected_subfolder:
     st.markdown(f"#### '{selected_dataset}': CSVアップロード (Supabase)")
     uploaded_files = st.file_uploader(f"'{selected_dataset}': CSVファイルを選択", type="csv", accept_multiple_files=True)
     if uploaded_files:
         for file in uploaded_files:
-            supa_path = f"{selected_dataset}/{selected_subfolder}/{file.name}"
-            res = supabase.storage.from_(BUCKET_NAME).upload(
+            supa_path = f"{path}/{selected_subfolder}/{file.name}"
+            supabase.storage.from_(BUCKET_NAME).upload(
                 supa_path,
                 file,
                 file_options={"content-type": "text/csv"},
@@ -103,45 +82,47 @@ if selected_subfolder != "新規フォルダを作成":
         st.success(f"{len(uploaded_files)} ファイルを Supabase にアップロードしました。")
 
     st.markdown(f"#### '{selected_dataset}': CSVファイルの削除 (Supabase)")
-    files = supabase.storage.from_(BUCKET_NAME).list(f"{selected_dataset}/{selected_subfolder}")
+    files = supabase.storage.from_(BUCKET_NAME).list(f"{path}/{selected_subfolder}")
     if files:
         csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
         if csv_files:
             selected_file = st.selectbox(f"'{selected_dataset}': 削除したいCSVファイルを選択", csv_files)
             if st.button(f"'{selected_dataset}': このCSVファイルを削除"):
-                supabase.storage.from_(BUCKET_NAME).remove(f"{selected_dataset}/{selected_subfolder}/{selected_file}")
+                supabase.storage.from_(BUCKET_NAME).remove(f"{path}/{selected_subfolder}/{selected_file}")
                 st.success(f"{selected_file} を削除しました。")
                 st.experimental_rerun()
 
     st.markdown(f"#### '{selected_dataset}': フォルダの削除")
     confirm = st.checkbox(f"'{selected_dataset}': 「{selected_subfolder}」フォルダを完全に削除する")
-    if confirm and st.button("'{selected_dataset}': フォルダを削除"):
-        # Supabase上のファイルを全削除
-        files = supabase.storage.from_(BUCKET_NAME).list(f"{selected_dataset}/{selected_subfolder}")
+    if confirm and st.button(f"'{selected_dataset}': フォルダを削除"):
         for f in files:
-            supabase.storage.from_(BUCKET_NAME).remove(f"{selected_dataset}/{selected_subfolder}/{f['name']}")
+            supabase.storage.from_(BUCKET_NAME).remove(f"{path}/{selected_subfolder}/{f['name']}")
         st.success(f"フォルダ「{selected_subfolder}」を削除しました。")
         st.experimental_rerun()
 
-st.divider()
-st.subheader(f"'{selected_dataset}_SpeedRoll'データのサブフォルダ管理")
-
-speed_subfolders = sorted([f for f in os.listdir(speed_path) if os.path.isdir(os.path.join(speed_path, f))], key=extract_number)
-speed_subfolders.append("新規フォルダを作成")
-selected_speed_subfolder = st.selectbox(f"'{selected_dataset}_SpeedRoll': 保存/削除対象フォルダを選択", speed_subfolders)
+# --- speed_pathのサブフォルダ一覧取得 ---
+speed_folders = sorted(list({
+    f["name"].split("/")[1]
+    for f in supabase.storage.from_(BUCKET_NAME).list(f"{speed_path}/", {"recursive": True})
+    if f["name"].count("/") >= 2
+}))
+speed_folders.append("新規フォルダを作成")
+selected_speed_subfolder = st.selectbox(f"'{selected_dataset}_SpeedRoll': 保存/削除対象フォルダを選択", speed_folders)
 
 if selected_speed_subfolder == "新規フォルダを作成":
-    new_folder_name = st.text_input(f"'{selected_dataset}_SpeedRoll': 新しいフォルダ名（例: 1-10球目）を入力", key="speed_new_folder")
-    if new_folder_name and st.button(f"'{selected_dataset}_SpeedRoll': フォルダを作成"):
+    new_folder_name = st.text_input(f"'{selected_dataset}_SpeedRoll': 新しいフォルダ名を入力", key="speed_new_folder")
+    if new_folder_name:
         selected_speed_subfolder = new_folder_name
+    else:
+        st.stop()
 
-if selected_speed_subfolder != "新規フォルダを作成":
+if selected_speed_subfolder:
     st.markdown(f"#### '{selected_dataset}_SpeedRoll': CSVアップロード (Supabase)")
     uploaded_speed_files = st.file_uploader(f"'{selected_dataset}_SpeedRoll': CSVファイルを選択", type="csv", accept_multiple_files=True, key="speed_upload")
     if uploaded_speed_files:
         for file in uploaded_speed_files:
-            supa_path = f"{selected_dataset}_SpeedRoll/{selected_speed_subfolder}/{file.name}"
-            res = supabase.storage.from_(BUCKET_NAME).upload(
+            supa_path = f"{speed_path}/{selected_speed_subfolder}/{file.name}"
+            supabase.storage.from_(BUCKET_NAME).upload(
                 supa_path,
                 file,
                 file_options={"content-type": "text/csv"},
@@ -150,24 +131,24 @@ if selected_speed_subfolder != "新規フォルダを作成":
         st.success(f"{len(uploaded_speed_files)} ファイルを Supabase にアップロードしました。")
 
     st.markdown(f"#### '{selected_dataset}_SpeedRoll': CSVファイルの削除 (Supabase)")
-    files = supabase.storage.from_(BUCKET_NAME).list(f"{selected_dataset}_SpeedRoll/{selected_speed_subfolder}")
+    files = supabase.storage.from_(BUCKET_NAME).list(f"{speed_path}/{selected_speed_subfolder}")
     if files:
         csv_files = [f["name"] for f in files if f["name"].endswith(".csv")]
         if csv_files:
             selected_file = st.selectbox(f"'{selected_dataset}_SpeedRoll': 削除したいCSVファイルを選択", csv_files)
             if st.button(f"'{selected_dataset}_SpeedRoll': このCSVファイルを削除"):
-                supabase.storage.from_(BUCKET_NAME).remove(f"{selected_dataset}_SpeedRoll/{selected_speed_subfolder}/{selected_file}")
+                supabase.storage.from_(BUCKET_NAME).remove(f"{speed_path}/{selected_speed_subfolder}/{selected_file}")
                 st.success(f"{selected_file} を削除しました。")
                 st.experimental_rerun()
 
     st.markdown(f"#### '{selected_dataset}_SpeedRoll': フォルダの削除")
     confirm_speed = st.checkbox(f"'{selected_dataset}_SpeedRoll': 「{selected_speed_subfolder}」フォルダを完全に削除する")
     if confirm_speed and st.button(f"'{selected_dataset}_SpeedRoll': フォルダを削除"):
-        files = supabase.storage.from_(BUCKET_NAME).list(f"{selected_dataset}_SpeedRoll/{selected_speed_subfolder}")
         for f in files:
-            supabase.storage.from_(BUCKET_NAME).remove(f"{selected_dataset}_SpeedRoll/{selected_speed_subfolder}/{f['name']}")
+            supabase.storage.from_(BUCKET_NAME).remove(f"{speed_path}/{selected_speed_subfolder}/{f['name']}")
         st.success(f"フォルダ「{selected_speed_subfolder}」を削除しました。")
         st.experimental_rerun()
+
 
 
 # ピーク検出とデータ整形のためのパラメータ
