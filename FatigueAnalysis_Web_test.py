@@ -73,11 +73,14 @@ if selected_subfolder:
     if uploaded_files:
         for file in uploaded_files:
             supa_path = f"{path}/{selected_subfolder}/{file.name}"
+            try:
+                supabase.storage.from_(BUCKET_NAME).remove(supa_path)
+            except:
+                pass
             supabase.storage.from_(BUCKET_NAME).upload(
                 supa_path,
                 file,
-                file_options={"content-type": "text/csv"},
-                upsert=True
+                file_options={"content-type": "text/csv"}
             )
         st.success(f"{len(uploaded_files)} ファイルを Supabase にアップロードしました。")
 
@@ -122,11 +125,14 @@ if selected_speed_subfolder:
     if uploaded_speed_files:
         for file in uploaded_speed_files:
             supa_path = f"{speed_path}/{selected_speed_subfolder}/{file.name}"
+            try:
+                supabase.storage.from_(BUCKET_NAME).remove(supa_path)
+            except:
+                pass
             supabase.storage.from_(BUCKET_NAME).upload(
                 supa_path,
                 file,
-                file_options={"content-type": "text/csv"},
-                upsert=True
+                file_options={"content-type": "text/csv"}
             )
         st.success(f"{len(uploaded_speed_files)} ファイルを Supabase にアップロードしました。")
 
@@ -148,7 +154,6 @@ if selected_speed_subfolder:
             supabase.storage.from_(BUCKET_NAME).remove(f"{speed_path}/{selected_speed_subfolder}/{f['name']}")
         st.success(f"フォルダ「{selected_speed_subfolder}」を削除しました。")
         st.experimental_rerun()
-
 
 
 # ピーク検出とデータ整形のためのパラメータ
